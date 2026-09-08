@@ -414,6 +414,26 @@ class HummingLayerMethod:
             global_scale = None
 
         if torch.cuda.get_device_capability()[0] < 75:
+            use_native_volta = (
+                meta.a_dtype == dtypes.float16
+                and not meta.num_experts
+                and meta.b_dtype.is_integer_type
+                and meta.b_dtype.num_bits in (2, 3)
+                and meta.weight_scale_group_size == 128
+                and weight_scale is not None
+                and weight_scale.dtype in (torch.float16, torch.bfloat16)
+                and not meta.has_zero_point
+            )
+            if use_native_volta:
+                # Keep the checkpoint's exact packed Humming representation.
+                # The SM70 WMMA kernel expands only a 16x16 tile in shared
+                # memory, which is essential for GSQ 27B/70B checkpoints.
+                cls.may_set_param(layer, meta.weight_name, weight)
+                cls.may_set_param(layer, meta.weight_scale_name, weight_scale)
+                cls.may_set_param(layer, meta.bias_name, bias)
+                setattr(layer, prefix + "volta_native", True)
+                return
+
             # Volta has FP16 Tensor Cores but not the ldmatrix fragment loads
             # required by Humming's native SM75+ GEMM.  Keep Humming's normal
             # quantized on-disk representation, then materialize one FP16
@@ -684,6 +704,28 @@ class HummingLayerMethod:
                 raise NotImplementedError("The SM70 fallback does not yet support MoE routing.")
             if input_scale is not None:
                 raise NotImplementedError("The SM70 fallback requires FP16 activations.")
+            if getattr(layer, meta.name_prefix + "volta_native", False):
+                from humming.kernel.volta_gemm import VoltaHummingGemmKernel
+
+                if meta.pad_shape_k:
+                    inputs = torch.nn.functional.pad(inputs, (0, meta.pad_shape_k))
+                kernel = VoltaHummingGemmKernel(
+                    weight_bits=meta.b_dtype.num_bits,
+                    scale_dtype=getattr(layer, meta.weight_scale_name).dtype,
+                )
+                result = kernel(
+                    inputs,
+                    getattr(layer, meta.weight_name),
+                    getattr(layer, meta.weight_scale_name),
+                )
+                result = result[..., : meta.shape_n - meta.pad_shape_n]
+                bias = getattr(layer, meta.bias_name, None)
+                if bias is not None:
+                    result = result + bias[..., : result.size(-1)]
+                if outputs is not None:
+                    outputs.copy_(result)
+                    return outputs
+                return result
             weight = getattr(layer, meta.name_prefix + "volta_weight")
             bias = getattr(layer, meta.name_prefix + "volta_bias", None)
             if meta.pad_shape_k:

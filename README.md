@@ -5,20 +5,24 @@ Humming is a high-performance, lightweight, and highly flexible JIT (Just-In-Tim
 
 ## Volta / V100 support in this fork
 
-This fork adds a usable SM70 baseline for Tesla V100 systems.  Humming's
-quantization and packing kernels still run as JIT CUDA kernels; dense layers
-with FP16 activations and quantized weights are dequantized once by
-`transform()` and execute through PyTorch/cuBLAS.  This preserves Humming's
-weight formats while avoiding native instructions unavailable on Volta.
+This fork adds an experimental SM70 path for Tesla V100 systems. Humming's
+quantization and packing kernels still run as JIT CUDA kernels. Compatible
+group-128 symmetric `uint2`/`uint3` dense layers with FP16 activations use a
+Volta WMMA kernel: weights stay packed in VRAM, are dequantized per tile on
+the GPU, and execute on Volta tensor cores without cuBLAS.
 
-The SM70 path currently supports dense FP16-activation layers only.  MoE,
-FP8/INT8 activations, and the native Humming GEMM remain SM75+ features.  A
-future native Volta backend must use `m8n8k4` fragments because Volta does not
-implement the SM75 `ldmatrix` or newer `m16n8k16` instructions.
+The native SM70 path supports only dense FP16 activation / group-128 `uint2`
+or `uint3` weights with symmetric FP16 or BF16 scales. It preserves the
+low-bit VRAM advantage but is correctness-first and needs full model-level
+validation and tuning before production use. Other dense configurations fall
+back to an expanded FP16 cache through PyTorch/cuBLAS, which is unsuitable for
+large low-bit models. MoE, FP8/INT8 activations, and asymmetric zero-points
+remain unsupported on SM70. Volta does not implement the SM75 `ldmatrix` or
+newer `m16n8k16` instructions used by upstream Humming.
 
-For Volta, use a PyTorch CUDA runtime whose FP16 cuBLAS path supports SM70.
-The fallback was verified with PyTorch 2.5/CUDA 12.1.  Install Humming's normal
-Python dependencies into that environment, then run your program from the
+The native GSQ path was validated with PyTorch CUDA 12.1 and CUDA 12.8 on an
+SM70 GPU. Use FP16 activations. Install Humming's normal Python dependencies
+into the intended inference environment, then run your program from the
 repository checkout:
 
 ```bash
