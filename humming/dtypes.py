@@ -196,7 +196,10 @@ float32 = FloatingPointType.from_str("float32")
 
 
 torch_dtype_map = {
-    float8e8m0: torch.float8_e8m0fnu,
+    # PyTorch 2.5 (a Volta-compatible CUDA runtime) predates
+    # float8_e8m0fnu.  SM70 only enables the FP16 path, so retain raw E8M0
+    # bytes for import compatibility instead of requiring a newer Torch build.
+    float8e8m0: getattr(torch, "float8_e8m0fnu", torch.uint8),
     float8e4m3: torch.float8_e4m3fn,
     float8e5m2: torch.float8_e5m2,
     float16: torch.float16,

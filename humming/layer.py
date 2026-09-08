@@ -18,6 +18,7 @@ from humming.schema import (
 from humming.tune import get_heuristics_config
 from humming.utils.device import estimate_compute_bound_threshold
 from humming.utils.weight import (
+    dequantize_weight,
     prepare_humming_bias,
     prepare_humming_weight,
     prepare_humming_weight_scale,
@@ -280,7 +281,7 @@ class HummingLayerMethod:
             shape = attrs["shape"]
             tensor = tensors[key]
             padding: list[int] = []
-            value = 0 if tensor.dtype != torch.float8_e8m0fnu else 1
+            value = 0 if tensor.dtype != getattr(torch, "float8_e8m0fnu", torch.uint8) else 1
             for i in range(1, len(shape) + 1):
                 padding += (0, shape[-i] - tensor.shape[-i])
 
@@ -411,6 +412,28 @@ class HummingLayerMethod:
             global_scale = tensors.get("global_scale", None)
         else:
             global_scale = None
+
+        if torch.cuda.get_device_capability()[0] < 75:
+            # Volta has FP16 Tensor Cores but not the ldmatrix fragment loads
+            # required by Humming's native SM75+ GEMM.  Keep Humming's normal
+            # quantized on-disk representation, then materialize one FP16
+            # dequantized copy for the portable cuBLAS fallback.  This is
+            # intentionally dense-only; custom Volta MMA will replace it.
+            if meta.a_dtype != dtypes.float16 or meta.num_experts:
+                raise NotImplementedError(
+                    "The SM70 fallback currently supports dense FP16 Humming layers only."
+                )
+            volta_weight = dequantize_weight(
+                weight=weight,
+                weight_scale=weight_scale,
+                zero_point=zero_point,
+                global_scale=global_scale,
+                dtype=meta.b_dtype,
+                packed=True,
+            ).to(meta.param_dtype).contiguous()
+            cls.may_set_param(layer, prefix + "volta_weight", volta_weight)
+            cls.may_set_param(layer, prefix + "volta_bias", bias)
+            return
 
         if meta.use_fused_e8m0_scale:
             assert weight_scale is not None
@@ -655,6 +678,22 @@ class HummingLayerMethod:
             m_major_scale=m_major_scale,
             sublayer_name=sublayer_name,
         )
+
+        if torch.cuda.get_device_capability(inputs.device)[0] < 75:
+            if any(x is not None for x in (sorted_ids, expert_ids, num_tokens_padded, expert_layout)):
+                raise NotImplementedError("The SM70 fallback does not yet support MoE routing.")
+            if input_scale is not None:
+                raise NotImplementedError("The SM70 fallback requires FP16 activations.")
+            weight = getattr(layer, meta.name_prefix + "volta_weight")
+            bias = getattr(layer, meta.name_prefix + "volta_bias", None)
+            if meta.pad_shape_k:
+                inputs = torch.nn.functional.pad(inputs, (0, meta.pad_shape_k))
+            result = torch.nn.functional.linear(inputs.to(weight.dtype), weight, bias)
+            result = result[..., : meta.shape_n - meta.pad_shape_n]
+            if outputs is not None:
+                outputs.copy_(result)
+                return outputs
+            return result
 
         if isinstance(compute_config, dict):
             compute_config = json.dumps(compute_config)

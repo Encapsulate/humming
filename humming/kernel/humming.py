@@ -293,7 +293,9 @@ class HummingKernel(KernelRuntime, LayerConfig, ComputeConfig, TuningConfig):
             dtypes.float8e4m3: 89,
             dtypes.float8e5m2: 89,
             dtypes.bfloat16: 80,
-            dtypes.float16: 75,
+            # Volta exposes FP16 Tensor Cores.  Its fragment/load backend is
+            # selected separately from the newer SM75 ldmatrix path.
+            dtypes.float16: 70,
         }
         assert self.a_dtype in dtype_map
         assert self.sm_version >= dtype_map[self.a_dtype]

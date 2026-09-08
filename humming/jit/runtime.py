@@ -51,7 +51,7 @@ class KernelRuntime:
         raise NotImplementedError
 
     def init_sm_version(self):
-        device_props = torch.cuda.get_device_properties()
+        device_props = torch.cuda.get_device_properties(torch.cuda.current_device())
         sm_version = device_props.major * 10 + device_props.minor
         self.sm_version = sm_version
         self.sm_version_str = str(sm_version)

@@ -46,6 +46,7 @@ def estimate_tensorcore_max_tops(gpu_index=0):
         sm_count = get_device_num_sms(gpu_index)
 
         ops_map = {
+            70: 1024,
             75: 1024,
             80: 2048,
             86: 1024,
