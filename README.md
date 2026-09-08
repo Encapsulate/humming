@@ -7,12 +7,12 @@ Humming is a high-performance, lightweight, and highly flexible JIT (Just-In-Tim
 
 This fork adds an experimental SM70 path for Tesla V100 systems. Humming's
 quantization and packing kernels still run as JIT CUDA kernels. Compatible
-group-128 symmetric `uint2`/`uint3` dense layers with FP16 activations use a
+group-128 symmetric `uint2`/`uint3` or group-64 `uint4` dense layers with FP16 activations use a
 Volta WMMA kernel: weights stay packed in VRAM, are dequantized per tile on
 the GPU, and execute on Volta tensor cores without cuBLAS.
 
 The native SM70 path supports only dense FP16 activation / group-128 `uint2`
-or `uint3` weights with symmetric FP16 or BF16 scales. It preserves the
+or `uint3`, and group-64 `uint4`, weights with symmetric FP16 or BF16 scales. It preserves the
 low-bit VRAM advantage but is correctness-first and needs full model-level
 validation and tuning before production use. Other dense configurations fall
 back to an expanded FP16 cache through PyTorch/cuBLAS, which is unsuitable for

@@ -18,7 +18,7 @@ __device__ __forceinline__ float volta_load_scale(const void *scales, int index)
   }
 }
 
-template <int kWeightBits, bool kScaleBf16>
+template <int kWeightBits, int kGroupSize, bool kScaleBf16>
 __global__ void volta_humming_gemm(
     const half *inputs,
     const int *weights,
@@ -28,7 +28,6 @@ __global__ void volta_humming_gemm(
     int shape_n,
     int shape_k) {
   constexpr int kTile = 16;
-  constexpr int kGroupSize = 128;
   constexpr int kMask = (1 << kWeightBits) - 1;
 
   const int tid = threadIdx.x;

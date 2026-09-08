@@ -418,8 +418,8 @@ class HummingLayerMethod:
                 meta.a_dtype == dtypes.float16
                 and not meta.num_experts
                 and meta.b_dtype.is_integer_type
-                and meta.b_dtype.num_bits in (2, 3)
-                and meta.weight_scale_group_size == 128
+                and meta.b_dtype.num_bits in (2, 3, 4)
+                and meta.weight_scale_group_size in (64, 128)
                 and weight_scale is not None
                 and weight_scale.dtype in (torch.float16, torch.bfloat16)
                 and not meta.has_zero_point
@@ -711,6 +711,7 @@ class HummingLayerMethod:
                     inputs = torch.nn.functional.pad(inputs, (0, meta.pad_shape_k))
                 kernel = VoltaHummingGemmKernel(
                     weight_bits=meta.b_dtype.num_bits,
+                    group_size=meta.weight_scale_group_size,
                     scale_dtype=getattr(layer, meta.weight_scale_name).dtype,
                 )
                 result = kernel(

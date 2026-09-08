@@ -10,22 +10,28 @@ from humming.jit.runtime import KernelRuntime
 
 @dataclasses.dataclass(kw_only=True)
 class VoltaHummingGemmKernel(KernelRuntime):
-    """Packed uint2/uint3, group-128 WMMA reference kernel for SM70."""
+    """Packed low-bit, group-scaled WMMA reference kernel for SM70."""
 
     name: ClassVar[str] = "volta_humming_gemm"
     weight_bits: int
+    group_size: int
     scale_dtype: torch.dtype
 
     def init_kernel(self):
         if self.sm_version != 70:
             raise RuntimeError("VoltaHummingGemmKernel is only valid on SM70.")
-        if self.weight_bits not in (2, 3):
-            raise ValueError("SM70 GSQ kernel supports uint2 and uint3 weights only.")
+        if self.weight_bits not in (2, 3, 4):
+            raise ValueError("SM70 GSQ kernel supports uint2, uint3, and uint4 weights only.")
+        if self.group_size not in (64, 128):
+            raise ValueError("SM70 GSQ kernel supports group sizes 64 and 128 only.")
         if self.scale_dtype not in (torch.float16, torch.bfloat16):
             raise ValueError("SM70 GSQ kernel requires float16 or bfloat16 group scales.")
         is_bf16 = self.scale_dtype == torch.bfloat16
         self.code = '#include <humming/kernel/volta_gemm.cuh>\n'
-        self.kernel_expr = f"volta_humming_gemm<{self.weight_bits}, {'true' if is_bf16 else 'false'}>"
+        self.kernel_expr = (
+            f"volta_humming_gemm<{self.weight_bits}, {self.group_size}, "
+            f"{'true' if is_bf16 else 'false'}>"
+        )
         self.arg_types = (
             ctypes.c_void_p,
             ctypes.c_void_p,
@@ -45,8 +51,8 @@ class VoltaHummingGemmKernel(KernelRuntime):
             raise ValueError("SM70 GSQ kernel expects rank-2 dense tensors.")
         shape_m, shape_k = inputs.shape
         shape_n = weights.shape[0]
-        if shape_k % 128 or shape_k % 16 or shape_n % 16:
-            raise ValueError("SM70 GSQ kernel requires N/K multiples of 16 and K multiple of 128.")
+        if shape_k % self.group_size or shape_k % 16 or shape_n % 16:
+            raise ValueError("SM70 GSQ kernel requires N/K multiples of 16 and K aligned to its group size.")
         if outputs is None:
             outputs = torch.empty((shape_m, shape_n), dtype=torch.float16, device=inputs.device)
         config = cbd.CUlaunchConfig()

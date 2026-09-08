@@ -12,9 +12,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("weight_dtype", [dtypes.uint2, dtypes.uint3])
+@pytest.mark.parametrize(
+    ("weight_dtype", "group_size"),
+    [(dtypes.uint2, 128), (dtypes.uint3, 128), (dtypes.uint4, 64)],
+)
 @pytest.mark.parametrize("scale_dtype", [torch.float16, torch.bfloat16])
-def test_sm70_packed_gsq_native_layer(weight_dtype, scale_dtype):
+def test_sm70_packed_gsq_native_layer(weight_dtype, group_size, scale_dtype):
     """Keep GSQ packed and execute it via the Volta WMMA path."""
     torch.manual_seed(70 + weight_dtype.num_bits)
     # N is packable but deliberately not a 256 multiple, exercising output
@@ -26,7 +29,7 @@ def test_sm70_packed_gsq_native_layer(weight_dtype, scale_dtype):
         torch_dtype=torch.float16,
         weight_config={
             "dtype": str(weight_dtype),
-            "group_size": 128,
+            "group_size": group_size,
             "scale_dtype": str(dtypes.DataType.from_torch_dtype(scale_dtype)),
         },
         pad_n_to_multiple=256,
