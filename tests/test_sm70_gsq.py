@@ -17,12 +17,13 @@ pytestmark = pytest.mark.skipif(
     [(dtypes.uint2, 128), (dtypes.uint3, 128), (dtypes.uint4, 64)],
 )
 @pytest.mark.parametrize("scale_dtype", [torch.float16, torch.bfloat16])
-def test_sm70_packed_gsq_native_layer(weight_dtype, group_size, scale_dtype):
-    """Keep GSQ packed and execute it via the Volta WMMA path."""
+@pytest.mark.parametrize("shape_m", [1, 5])
+def test_sm70_packed_gsq_native_layer(weight_dtype, group_size, scale_dtype, shape_m):
+    """Keep GSQ packed and validate both decode GEMV and prefill GEMM paths."""
     torch.manual_seed(70 + weight_dtype.num_bits)
     # N is packable but deliberately not a 256 multiple, exercising output
     # padding and trimming just as the vLLM adapter does.
-    shape_m, shape_n, shape_k = 5, 480, 384
+    shape_n, shape_k = 480, 384
     layer = HummingLayer(
         shape_n=shape_n,
         shape_k=shape_k,

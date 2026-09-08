@@ -7,13 +7,16 @@ Humming is a high-performance, lightweight, and highly flexible JIT (Just-In-Tim
 
 This fork adds an experimental SM70 path for Tesla V100 systems. Humming's
 quantization and packing kernels still run as JIT CUDA kernels. Compatible
-group-128 symmetric `uint2`/`uint3` or group-64 `uint4` dense layers with FP16 activations use a
-Volta WMMA kernel: weights stay packed in VRAM, are dequantized per tile on
-the GPU, and execute on Volta tensor cores without cuBLAS.
+group-128 symmetric `uint2`/`uint3` or group-64 `uint4` dense layers with FP16 activations use
+native Volta kernels: weights stay packed in VRAM and are dequantized on the
+GPU without cuBLAS. Multi-token inputs use WMMA; single-token decode uses a
+dedicated packed GEMV kernel that avoids padded WMMA rows. The native launches
+are registered as Torch custom ops, allowing graph-aware runtimes to retain an
+opaque CUDA launch in their compiled/CUDA-graph path.
 
 The native SM70 path supports only dense FP16 activation / group-128 `uint2`
 or `uint3`, and group-64 `uint4`, weights with symmetric FP16 or BF16 scales. It preserves the
-low-bit VRAM advantage but is correctness-first and needs full model-level
+low-bit VRAM advantage but remains experimental and needs full model-level
 validation and tuning before production use. Other dense configurations fall
 back to an expanded FP16 cache through PyTorch/cuBLAS, which is unsuitable for
 large low-bit models. MoE, FP8/INT8 activations, and asymmetric zero-points
@@ -30,7 +33,9 @@ python -m pip install -e .
 python your_program.py
 ```
 
-See [SM70 notes](docs/sm70.md) for the constraints and rationale.
+See [SM70 notes](docs/sm70.md) for the constraints and rationale, and the
+[Tesla V100 32 GB Qwen 3.8 validation record](docs/qwen3.8-v100-validation.md)
+for a sanitized end-to-end run and benchmark.
 
 ## Key Features
 

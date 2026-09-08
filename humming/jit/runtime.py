@@ -109,7 +109,6 @@ class KernelRuntime:
         self.cubin_loaded = True
 
     def check_context(self):
-        assert threading.current_thread() is threading.main_thread()
         if not self.cubin_loaded:
             self.load_cubin()
 

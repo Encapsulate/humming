@@ -705,11 +705,14 @@ class HummingLayerMethod:
             if input_scale is not None:
                 raise NotImplementedError("The SM70 fallback requires FP16 activations.")
             if getattr(layer, meta.name_prefix + "volta_native", False):
-                from humming.kernel.volta_gemm import VoltaHummingGemmKernel
+                from humming.kernel.volta_gemm import VoltaHummingGemmKernel, VoltaHummingGemvKernel
 
                 if meta.pad_shape_k:
                     inputs = torch.nn.functional.pad(inputs, (0, meta.pad_shape_k))
-                kernel = VoltaHummingGemmKernel(
+                # Decode has one activation row.  Use the GEMV kernel so we
+                # do not spend tensor-core work on fifteen padded rows.
+                kernel_type = VoltaHummingGemvKernel if inputs.shape[0] == 1 else VoltaHummingGemmKernel
+                kernel = kernel_type(
                     weight_bits=meta.b_dtype.num_bits,
                     group_size=meta.weight_scale_group_size,
                     scale_dtype=getattr(layer, meta.weight_scale_name).dtype,
